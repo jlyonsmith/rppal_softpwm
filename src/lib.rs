@@ -4,14 +4,18 @@
 
 mod log_macros;
 
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 use core::fmt::Arguments;
-use std::error::Error;
+use rppal::gpio::Gpio;
+use std::{error::Error, time::Duration};
 
 /// This trait defines the logging interface for the RppalSoftpwmTool.
 pub trait RppalSoftpwmLog {
+    /// Output a message to the log.
     fn output(self: &Self, args: Arguments);
+    /// Output a warning message to the log.
     fn warning(self: &Self, args: Arguments);
+    /// Output an error message to the log.
     fn error(self: &Self, args: Arguments);
 }
 
@@ -63,46 +67,53 @@ struct Cli {
     #[arg(long = "no-color", short = 'n', env = "NO_CLI_COLOR")]
     no_color: bool,
 
-    /// Frequency of the PWM signal in MHz
+    /// BCM pin to use for PWM output
+    #[arg(long = "pin", short = 'p')]
+    pin: BcmPin,
+
+    /// Frequency of the PWM signal in Hz
     #[arg(long = "frequency", short = 'f', default_value_t = 50)]
     frequency: u64,
 
-    /// Sequence of BCM pins and angle values
-    #[arg(long = "sequence", short = 's', value_parser = parse_pin_angle)]
-    sequence: Vec<(BcmPin, f64)>,
+    /// Sequence of angles in degrees and times in milliseconds
+    #[arg(long = "angles", short = 'a', value_parser = parse_angle_time, value_delimiter = ',', num_args = 1..)]
+    angles: Vec<(u64, u64)>,
 }
 
-fn parse_pin_angle(input: &str) -> Result<(BcmPin, f64), String> {
-    let parts: Vec<&str> = input.split(':').collect();
+fn parse_angle_time(s: &str) -> Result<(u64, u64), String> {
+    let parts: Vec<&str> = s.split(':').collect();
     if parts.len() != 2 {
         return Err("Invalid format".to_string());
     }
-    let pin = parts[0]
-        .parse::<BcmPin>()
-        .map_err(|_| "Invalid pin".to_string())?;
-    let angle = parts[1]
-        .parse::<f64>()
-        .map_err(|_| "Invalid angle".to_string())?;
-    Ok((pin, angle))
+    let angle = parts[0].parse().map_err(|_| "Invalid angle".to_string())?;
+
+    if angle > 180 {
+        return Err("Angle must be between 0 and 180".to_string());
+    }
+
+    let time = parts[1].parse().map_err(|_| "Invalid time".to_string())?;
+    Ok((angle, time))
 }
 
 impl<'a> RppalSoftpwmTool<'a> {
+    /// Create a new instance of the tool.
     pub fn new(log: &'a dyn RppalSoftpwmLog) -> RppalSoftpwmTool<'a> {
         RppalSoftpwmTool { log }
     }
 
+    /// Run the tool with the given arguments.
     pub fn run(
         self: &mut Self,
         args: impl IntoIterator<Item = std::ffi::OsString>,
     ) -> Result<(), Box<dyn Error>> {
-        let _cli = match Cli::try_parse_from(args) {
+        let cli = match Cli::try_parse_from(args) {
             Ok(m) => m,
             Err(err) => {
                 output!(self.log, "{}", err.to_string());
                 return Ok(());
             }
         };
-        let mut latch_pin = Gpio::new()?.get(LATCH_PIN)?.into_output();
+        let mut latch_pin = Gpio::new()?.get(cli.pin as u8)?.into_output();
 
         latch_pin.set_reset_on_drop(false);
 
@@ -110,8 +121,15 @@ impl<'a> RppalSoftpwmTool<'a> {
             (degrees * (DUTY_CYCLE_RANGE / 180.0) + DUTY_CYCLE_0_DEGREES) / 100.0
         }
 
-        latch_pin.set_pwm_frequency(cli.frequency, degrees_to_duty_cycle(LATCH_DEGREES))?;
-        thread::sleep(Duration::from_millis(500));
+        for (angle, time) in cli.angles {
+            output!(self.log, "{}° for {} ms", angle, time);
+            latch_pin
+                .set_pwm_frequency(cli.frequency as f64, degrees_to_duty_cycle(angle as f64))?;
+            std::thread::sleep(Duration::from_millis(time));
+        }
+
+        output!(self.log, "Done");
+        latch_pin.clear_pwm()?;
 
         Ok(())
     }
