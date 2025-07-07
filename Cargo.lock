@@ -501,6 +501,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dbb5fb1acd8a1a18b3dd5be62d25485eb770e05afb408a9627d14d451bae12da"
 
 [[package]]
+name = "rppal"
+version = "0.22.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1ce3b019009cff02cb6b0e96e7cc2e5c5b90187dc1a490f8ef1521d0596b026"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "rppal_softpwm"
 version = "0.0.0"
 dependencies = [
@@ -508,6 +517,7 @@ dependencies = [
  "clap",
  "criterion",
  "lazy_static",
+ "rppal",
  "termion",
  "thiserror",
 ]

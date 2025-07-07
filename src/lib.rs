@@ -1,24 +1,60 @@
+//! This is a CLI tool for controlling software PWM signals using the RPPAL library.
+//!
+#![deny(unsafe_code, missing_docs)]
+
 mod log_macros;
 
-use anyhow::Context;
 use clap::Parser;
 use core::fmt::Arguments;
-use std::{
-    error::Error,
-    fs::File,
-    io::{self, Read, Write},
-    path::PathBuf,
-};
+use std::error::Error;
 
+/// This trait defines the logging interface for the RppalSoftpwmTool.
 pub trait RppalSoftpwmLog {
     fn output(self: &Self, args: Arguments);
     fn warning(self: &Self, args: Arguments);
     fn error(self: &Self, args: Arguments);
 }
 
+/// This struct represents the RppalSoftpwmTool.
 pub struct RppalSoftpwmTool<'a> {
     log: &'a dyn RppalSoftpwmLog,
 }
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+#[repr(u8)]
+enum BcmPin {
+    Pin1 = 1,
+    Pin2,
+    Pin3,
+    Pin4,
+    Pin5,
+    Pin6,
+    Pin7,
+    Pin8,
+    Pin9,
+    Pin10,
+    Pin11,
+    Pin12,
+    Pin13,
+    Pin14,
+    Pin15,
+    Pin16,
+    Pin17,
+    Pin18,
+    Pin19,
+    Pin20,
+    Pin21,
+    Pin22,
+    Pin23,
+    Pin24,
+    Pin25,
+    Pin26,
+    Pin27,
+}
+
+const DUTY_CYCLE_0_DEGREES: f64 = 2.5;
+const DUTY_CYCLE_180_DEGREES: f64 = 12.5;
+const DUTY_CYCLE_RANGE: f64 = DUTY_CYCLE_180_DEGREES - DUTY_CYCLE_0_DEGREES;
 
 #[derive(Parser)]
 #[clap(version, about, long_about = None)]
@@ -27,36 +63,27 @@ struct Cli {
     #[arg(long = "no-color", short = 'n', env = "NO_CLI_COLOR")]
     no_color: bool,
 
-    /// The input file
-    #[arg(value_name = "INPUT_FILE")]
-    input_file: Option<PathBuf>,
+    /// Frequency of the PWM signal in MHz
+    #[arg(long = "frequency", short = 'f', default_value_t = 50)]
+    frequency: u64,
 
-    /// The output file
-    #[arg(value_name = "OUTPUT_FILE")]
-    output_file: Option<PathBuf>,
+    /// Sequence of BCM pins and angle values
+    #[arg(long = "sequence", short = 's', value_parser = parse_pin_angle)]
+    sequence: Vec<(BcmPin, f64)>,
 }
 
-impl Cli {
-    fn get_output(&self) -> anyhow::Result<Box<dyn Write>> {
-        match self.output_file {
-            Some(ref path) => File::create(path)
-                .context(format!(
-                    "Unable to create file '{}'",
-                    path.to_string_lossy()
-                ))
-                .map(|f| Box::new(f) as Box<dyn Write>),
-            None => Ok(Box::new(io::stdout())),
-        }
+fn parse_pin_angle(input: &str) -> Result<(BcmPin, f64), String> {
+    let parts: Vec<&str> = input.split(':').collect();
+    if parts.len() != 2 {
+        return Err("Invalid format".to_string());
     }
-
-    fn get_input(&self) -> anyhow::Result<Box<dyn Read>> {
-        match self.input_file {
-            Some(ref path) => File::open(path)
-                .context(format!("Unable to open file '{}'", path.to_string_lossy()))
-                .map(|f| Box::new(f) as Box<dyn Read>),
-            None => Ok(Box::new(io::stdin())),
-        }
-    }
+    let pin = parts[0]
+        .parse::<BcmPin>()
+        .map_err(|_| "Invalid pin".to_string())?;
+    let angle = parts[1]
+        .parse::<f64>()
+        .map_err(|_| "Invalid angle".to_string())?;
+    Ok((pin, angle))
 }
 
 impl<'a> RppalSoftpwmTool<'a> {
@@ -68,19 +95,23 @@ impl<'a> RppalSoftpwmTool<'a> {
         self: &mut Self,
         args: impl IntoIterator<Item = std::ffi::OsString>,
     ) -> Result<(), Box<dyn Error>> {
-        let cli = match Cli::try_parse_from(args) {
+        let _cli = match Cli::try_parse_from(args) {
             Ok(m) => m,
             Err(err) => {
                 output!(self.log, "{}", err.to_string());
                 return Ok(());
             }
         };
+        let mut latch_pin = Gpio::new()?.get(LATCH_PIN)?.into_output();
 
-        let mut content = String::new();
+        latch_pin.set_reset_on_drop(false);
 
-        cli.get_input()?.read_to_string(&mut content)?;
+        fn degrees_to_duty_cycle(degrees: f64) -> f64 {
+            (degrees * (DUTY_CYCLE_RANGE / 180.0) + DUTY_CYCLE_0_DEGREES) / 100.0
+        }
 
-        write!(cli.get_output()?, "{}", content)?;
+        latch_pin.set_pwm_frequency(cli.frequency, degrees_to_duty_cycle(LATCH_DEGREES))?;
+        thread::sleep(Duration::from_millis(500));
 
         Ok(())
     }
