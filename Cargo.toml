@@ -1,0 +1,29 @@
+[package]
+name = "rppal_softpwm"
+version = "0.0.0"
+edition = "2021"
+authors = ["John Lyon <john@escapegallery.net>"]
+description = "RPPAL Soft PWM command line tool"
+repository = "https://github.com/jlyonsmith/rppal_softpwm"
+readme = "README.md"
+keywords = []
+categories = []
+license = "Unlicense"
+
+[dependencies]
+anyhow = "1.0.86"
+clap = { version = "4.5", features = ["derive", "env"] }
+lazy_static = "1.5"
+termion = "4.0.5"
+thiserror = "2.0"
+
+[dev-dependencies]
+criterion = "^0.5"
+
+[[bench]]
+name = "benchmarks"
+harness = false
+
+[[bin]]
+name = "rppal-softpwm"
+path = "src/bin/rppal_softpwm.rs"
