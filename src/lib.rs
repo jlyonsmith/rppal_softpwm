@@ -76,7 +76,7 @@ struct Cli {
     frequency: u64,
 
     /// Sequence of angles in degrees and times in milliseconds
-    #[arg(long = "angles", short = 'a', value_parser = parse_angle_time, value_delimiter = ',', num_args = 1..)]
+    #[arg(long = "angles", short = 'a', value_name = "ANGLE:TIME", value_parser = parse_angle_time, value_delimiter = ',', num_args = 1..)]
     angles: Vec<(u64, u64)>,
 }
 
